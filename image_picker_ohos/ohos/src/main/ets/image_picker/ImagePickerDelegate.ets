@@ -28,6 +28,7 @@ import { BusinessError } from '@ohos.base';
 import { cameraPicker, camera } from '@kit.CameraKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit'
 import DateTimeUtil from './DateTimeUtil';
+import { dataSharePredicates } from '@kit.ArkData';
 
 export default class ImagePickerDelegate {
   readonly REQUEST_CODE_CHOOSE_IMAGE_FROM_GALLERY = 2342;
@@ -163,7 +164,7 @@ export default class ImagePickerDelegate {
       return;
     }
 
-    this.chooseMedia(generalOptions.getAllowMultiple() ? 9 : 1, 'handleChooseMediaResult')
+    this.chooseMedia(generalOptions.getAllowMultiple() ? 500 : 1, 'handleChooseMediaResult')
   }
 
   handleChooseMediaResult(code: number, uris: Array<string>): void {
@@ -180,8 +181,65 @@ export default class ImagePickerDelegate {
       localImageOptions = this.pendingCallState.imageOptions;
     }
     let pathList: ArrayList<string> = new ArrayList();
+    let phAccessHelper = photoAccessHelper.getPhotoAccessHelper(this.context);
     if (localImageOptions != null && localImageOptions != undefined) {
       for (let path of uris) {
+        
+        let predicates: dataSharePredicates.DataSharePredicates = new dataSharePredicates.DataSharePredicates();
+        predicates.equalTo(photoAccessHelper.PhotoKeys.URI, path);
+        let fetchOption: photoAccessHelper.FetchOptions = {
+          fetchColumns: [],
+          predicates: predicates
+        };
+        let fetchResult: photoAccessHelper.FetchResult<photoAccessHelper.PhotoAsset> = await phAccessHelper.getAssets(fetchOption);
+        let photoAsset: photoAccessHelper.PhotoAsset = await fetchResult.getFirstObject();
+        let photoSubtype = photoAsset.get(photoAccessHelper.PhotoKeys.PHOTO_SUBTYPE).valueOf() as number;
+
+        if(photoSubtype==3) {   //Moving Photo
+        // 获取PhotoAsset对应的动态照片对象。
+          await new Promise<void>((resolve, reject) => {
+            try {
+              photoAccessHelper.MediaAssetManager.requestMovingPhoto(
+                this.context,
+                photoAsset,
+                { deliveryMode: photoAccessHelper.DeliveryMode.HIGH_QUALITY_MODE },
+                {
+                  // 把回调写成 async，这样内部可以 await requestContent
+                  onDataPrepared: async (movingPhoto: photoAccessHelper.MovingPhoto) => {
+                    try {
+                      if (movingPhoto) {
+                        if(!fs.accessSync(this.context!.cacheDir + "/movingPhoto")) {
+                          fs.mkdirSync(this.context!.cacheDir + "/movingPhoto");
+                        }
+                       
+                        const targetDirectoryPath = this.context!.cacheDir + "/movingPhoto/";
+                        //console.error(" targetDirectoryPat is " + targetDirectoryPath)
+                        
+                        const inputFilePath = path.substring(path.lastIndexOf("/") + 1);
+                        const inputFilePathSplits = inputFilePath.split(".");
+                        const outputFileName = inputFilePathSplits[0];
+                        let extension: string = ".mp4";
+                        const outputFilePath = targetDirectoryPath + "/" + outputFileName + extension;
+                          // 等待 movingPhoto 写出视频资源
+                        await movingPhoto.requestContent(photoAccessHelper.ResourceType.VIDEO_RESOURCE, outputFilePath);
+                        pathList.add(outputFilePath); // 把结果加入列表
+                      }
+                      resolve();
+                    } catch (err) {
+                      reject(err);
+                    }
+                  },
+
+                  // 可选：处理 onError
+                }
+              );
+            } catch (e) {
+              // requestMovingPhoto 本身同步抛错的情况
+              reject(e);
+            }
+          });
+        }
+
         if (path.search("video") < 0 && this.pendingCallState) {
           path = await this.getResizedImagePath(path, this.pendingCallState.imageOptions);
         }
@@ -285,7 +343,7 @@ export default class ImagePickerDelegate {
       return;
     }
 
-    this.chooseMedia(9, 'handleChooseMediaResult', photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE)
+    this.chooseMedia(500, 'handleChooseMediaResult', photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE)
   }
 
   // 唤起相机拍照
