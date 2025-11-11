@@ -219,7 +219,7 @@ export default class ImagePickerDelegate {
                         const inputFilePathSplits = inputFilePath.split(".");
                         const outputFileName = inputFilePathSplits[0];
                         let extension: string = ".mp4";
-                        const outputFilePath = targetDirectoryPath + "/" + outputFileName + extension;
+                        const outputFilePath = targetDirectoryPath + outputFileName + extension;
                           // 等待 movingPhoto 写出视频资源
                         await movingPhoto.requestContent(photoAccessHelper.ResourceType.VIDEO_RESOURCE, outputFilePath);
                         pathList.add(outputFilePath); // 把结果加入列表
